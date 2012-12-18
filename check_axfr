@@ -32,9 +32,6 @@ use utils qw($TIMEOUT %ERRORS &print_revision &support);
 
 $PROGNAME = basename($PROGRAM_NAME);
 
-sub print_help();
-sub print_usage();
-
 $ENV{'PATH'}='';
 $ENV{'BASH_ENV'}='';
 $ENV{'ENV'}='';
@@ -168,11 +165,11 @@ sub get_serial {
     return $serial;
 }
 
-sub print_usage () {
+sub print_usage {
     print "Usage: $PROGNAME -H <host> [ -c <lag_critical> [ -w <lag_warning> ] ] [-r <retries>] -M <master> -z <zone> [-v verbose]\n";
 }
 
-sub print_help () {
+sub print_help {
     print_revision($PROGNAME,'$Revision: 0.01 $');
     print "Copyright (c) 2003 Ondrej Sury\n";
     print "\n";
