@@ -1,0 +1,172 @@
+#!/usr/bin/perl -w
+#
+# Copyright (C) 1998 David Eckelkamp
+#           (C) 2005 Ondrej Sury
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+require 5.004;
+use POSIX;
+use strict;
+use Getopt::Long;
+use English;
+use File::Basename;
+use Net::DNS::Resolver;
+use Net::DNS::Packet;
+use Net::DNS::RR;
+
+use vars qw($opt_V $opt_h $opt_H $opt_z $opt_M $opt_t $opt_r $PROGNAME $verbose);
+use lib "/usr/lib/nagios/plugins"; 
+use utils qw($TIMEOUT %ERRORS &print_revision &support);
+
+$PROGNAME="check_zone";
+
+sub print_help();
+sub print_usage();
+
+$ENV{'PATH'}='';
+$ENV{'BASH_ENV'}='';
+$ENV{'ENV'}='';
+
+Getopt::Long::Configure('bundling');
+GetOptions
+	("V"   => \$opt_V, "version"    => \$opt_V,
+	 "h"   => \$opt_h, "help"       => \$opt_h,
+	 "v" => \$verbose, "verbose"  	=> \$verbose,
+	 "r=s" => \$opt_r, "retries=f"  => \$opt_r,
+	 "z=s" => \$opt_z, "zone=s"     => \$opt_z,
+	 "M=s" => \$opt_M, "master=s"   => \$opt_M,
+	 "t=s" => \$opt_t, "timeout=i"  => \$opt_t,
+	 "H=s" => \$opt_H, "hostname=s" => \$opt_H);
+
+if ($opt_V) {
+    print_revision($PROGNAME,'$Revision: 0.01 $ ');
+    exit $ERRORS{'OK'};
+}
+
+if ($opt_h) {
+    print_help();
+    exit $ERRORS{'OK'};
+}
+
+$opt_H = shift unless ($opt_H);
+my $host = $1 if ($opt_H && $opt_H =~ m/^([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+|[a-zA-Z][-a-zA-Z0-9]+(\.[a-zA-Z][-a-zA-Z0-9]+)*)$/);
+unless ($host) {
+    print "No target host specified\n";
+    print_usage();
+    exit $ERRORS{'UNKNOWN'};
+}
+
+my ($timeout, $retries);
+
+$timeout = $TIMEOUT;
+($opt_t) && ($opt_t =~ /^([0-9]+)$/) && ($timeout = $1);
+
+$retries = 2;
+($opt_r) && ($opt_r =~ /^([0-9]+)$/) && ($retries = $1);
+
+my $zone = $opt_z;
+unless ($zone) {
+    print "No zone specified\n";
+    print_usage();
+    exit $ERRORS{'UNKNOWN'};
+}
+
+my $master = $opt_M;
+unless ($master) {
+    print "No master DNS server specified\n";
+    print_usage();
+    exit $ERRORS{'UNKNOWN'};
+}
+
+my ($res, $soa_req, $serial);
+$res = new Net::DNS::Resolver;
+$res->defnames(0);
+$res->recurse(0);
+$res->retry($retries);
+$res->nameservers($master);
+$soa_req = $res->query($zone, "SOA");
+
+if (!defined($soa_req) || ($soa_req->header->ancount <= 0)) {
+    print "SOA query for $zone from $master failed (" . $res->errorstring . ")\n";
+    exit $ERRORS{'CRITICAL'};
+}
+
+unless ($soa_req->header->aa) {
+    print "$master in not authoritative for $zone\n";
+    exit $ERRORS{'CRITICAL'};
+}
+
+unless ($soa_req->header->ancount == 1) {
+    print "Too many answers for SOA query from $master for $zone\n";
+    exit $ERRORS{'CRITICAL'};
+}
+    
+unless (($soa_req->answer)[0]->type eq "SOA") {
+    print "Query for SOA for $zone from $master failed: return type = ". ($soa_req->answer)[0]->type . "\n";
+    exit $ERRORS{'CRITICAL'};
+}
+	
+$serial = ($soa_req->answer)[0]->serial;
+
+$res = new Net::DNS::Resolver;
+$res->defnames(0);
+$res->recurse(0);
+$res->retry($retries);
+$res->nameservers($host);
+
+$soa_req = $res->query($zone, "SOA");
+
+if (!defined($soa_req) || ($soa_req->header->ancount <= 0)) {
+    print "SOA query for $zone from $host failed (" . $res->errorstring . ")\n";
+    exit $ERRORS{'CRITICAL'};
+}
+
+unless ($soa_req->header->aa) {
+    print "$host in not authoritative for $zone\n";
+    exit $ERRORS{'CRITICAL'};
+}
+
+unless ($soa_req->header->ancount == 1) {
+    print "Too many answers for SOA query from $host for $zone\n";
+    exit $ERRORS{'CRITICAL'};
+}
+    
+unless (($soa_req->answer)[0]->type eq "SOA") {
+    print "Query for SOA for $zone from $host failed: return type = ". ($soa_req->answer)[0]->type . "\n";
+    exit $ERRORS{'CRITICAL'};
+}
+
+unless ($serial == ($soa_req->answer)[0]->serial) {
+    print "Serial not up-to-date: is ". ($soa_req->answer)[0]->serial . ", should be $serial\n";
+    exit $ERRORS{'CRITICAL'};
+}
+
+print "Serial for $zone: $serial\n";
+exit $ERRORS{"OK"};
+
+#### subs
+
+sub print_usage () {
+	print "Usage: $PROGNAME -H <host> [-r <retries>] -M <master> -z <zone> [-v verbose]\n";
+}
+
+sub print_help () {
+	print_revision($PROGNAME,'$Revision: 0.01 $');
+	print "Copyright (c) 2003 Ondrej Sury\n";
+	print "\n";
+	print_usage();
+	support();
+}
