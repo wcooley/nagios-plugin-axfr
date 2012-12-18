@@ -28,7 +28,7 @@ use Net::DNS::Packet;
 use Net::DNS::RR;
 
 use vars qw($opt_c $opt_w $opt_V $opt_h $opt_H $opt_z $opt_M $opt_t $opt_r $PROGNAME $verbose);
-use lib "/usr/lib/nagios/plugins"; 
+use lib "/usr/lib/nagios/plugins";
 use utils qw($TIMEOUT %ERRORS &print_revision &support);
 
 $PROGNAME="check_zone";
@@ -100,67 +100,11 @@ if ($opt_w > $opt_c) {
     $opt_w = $opt_c;
 }
 
-my ($res, $soa_req, $master_serial);
-$res = new Net::DNS::Resolver;
-$res->defnames(0);
-$res->recurse(0);
-$res->retry($retries);
-$res->nameservers($master);
-$soa_req = $res->query($zone, "SOA");
-
-if (!defined($soa_req) || ($soa_req->header->ancount <= 0)) {
-    print "SOA query for $zone from $master failed (" . $res->errorstring . ")\n";
-    exit $ERRORS{'CRITICAL'};
-}
-
-unless ($soa_req->header->aa) {
-    print "$master in not authoritative for $zone\n";
-    exit $ERRORS{'CRITICAL'};
-}
-
-unless ($soa_req->header->ancount == 1) {
-    print "Too many answers for SOA query from $master for $zone\n";
-    exit $ERRORS{'CRITICAL'};
-}
-    
-unless (($soa_req->answer)[0]->type eq "SOA") {
-    print "Query for SOA for $zone from $master failed: return type = ". ($soa_req->answer)[0]->type . "\n";
-    exit $ERRORS{'CRITICAL'};
-}
-	
-$master_serial = ($soa_req->answer)[0]->serial;
+my $master_serial = get_serial($zone, $master, $retries, $timeout);
 my $master_serial_critical  = $master_serial - $opt_c;
 my $master_serial_warn      = $master_serial - $opt_w;
 
-$res = new Net::DNS::Resolver;
-$res->defnames(0);
-$res->recurse(0);
-$res->retry($retries);
-$res->nameservers($host);
-
-$soa_req = $res->query($zone, "SOA");
-
-if (!defined($soa_req) || ($soa_req->header->ancount <= 0)) {
-    print "SOA query for $zone from $host failed (" . $res->errorstring . ")\n";
-    exit $ERRORS{'CRITICAL'};
-}
-
-unless ($soa_req->header->aa) {
-    print "$host in not authoritative for $zone\n";
-    exit $ERRORS{'CRITICAL'};
-}
-
-unless ($soa_req->header->ancount == 1) {
-    print "Too many answers for SOA query from $host for $zone\n";
-    exit $ERRORS{'CRITICAL'};
-}
-    
-unless (($soa_req->answer)[0]->type eq "SOA") {
-    print "Query for SOA for $zone from $host failed: return type = ". ($soa_req->answer)[0]->type . "\n";
-    exit $ERRORS{'CRITICAL'};
-}
-
-my $slave_serial = ($soa_req->answer)[0]->serial();
+my $slave_serial = get_serial($zone, $host, $retries, $timeout);
 
 if ($master_serial != $slave_serial) {
     my $should_be_text;
@@ -190,14 +134,49 @@ exit $ERRORS{"OK"};
 
 #### subs
 
+sub get_serial {
+    my ($zone, $ns, $retries, $timeout) = @_;
+
+    my $res = new Net::DNS::Resolver;
+    $res->defnames(0);
+    $res->recurse(0);
+    $res->retry($retries);
+    $res->nameservers($ns);
+    my $soa_req = $res->query($zone, "SOA");
+
+    if (!defined($soa_req) || ($soa_req->header->ancount <= 0)) {
+        print "SOA query for zone '$zone' to nameserver '$ns' failed (" . $res->errorstring . ")\n";
+        exit $ERRORS{'UNKNOWN'};
+    }
+
+    unless ($soa_req->header->aa) {
+        print "$ns in not authoritative for $zone\n";
+        exit $ERRORS{'UNKNOWN'};
+    }
+
+    unless ($soa_req->header->ancount == 1) {
+        print "Too many answers for SOA query from $ns for $zone\n";
+        exit $ERRORS{'UNKNOWN'};
+    }
+
+    unless (($soa_req->answer)[0]->type eq "SOA") {
+        print "Query for SOA for $zone from $ns failed: return type = ". ($soa_req->answer)[0]->type . "\n";
+        exit $ERRORS{'UNKNOWN'};
+    }
+
+    my $serial = ($soa_req->answer)[0]->serial();
+
+    return $serial;
+}
+
 sub print_usage () {
-	print "Usage: $PROGNAME -H <host> [ -c <lag_critical> [ -w <lag_warning> ] ] [-r <retries>] -M <master> -z <zone> [-v verbose]\n";
+    print "Usage: $PROGNAME -H <host> [ -c <lag_critical> [ -w <lag_warning> ] ] [-r <retries>] -M <master> -z <zone> [-v verbose]\n";
 }
 
 sub print_help () {
-	print_revision($PROGNAME,'$Revision: 0.01 $');
-	print "Copyright (c) 2003 Ondrej Sury\n";
-	print "\n";
-	print_usage();
-	support();
+    print_revision($PROGNAME,'$Revision: 0.01 $');
+    print "Copyright (c) 2003 Ondrej Sury\n";
+    print "\n";
+    print_usage();
+    support();
 }
