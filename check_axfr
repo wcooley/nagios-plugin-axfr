@@ -40,12 +40,12 @@ GetOptions
 	("V"   => \$opt_V, "version"    => \$opt_V,
 	 "h"   => \$opt_h, "help"       => \$opt_h,
 	 "v" => \$verbose, "verbose"  	=> \$verbose,
-         "w=o" => \$opt_w, "warning"    => \$opt_w,
-         "c=o" => \$opt_c, "critical"   => \$opt_c,
-	 "r=s" => \$opt_r, "retries=f"  => \$opt_r,
+         "w=o" => \$opt_w, "warning=o"  => \$opt_w,
+         "c=o" => \$opt_c, "critical=o" => \$opt_c,
+	 "r=o" => \$opt_r, "retries=o"  => \$opt_r,
 	 "z=s" => \$opt_z, "zone=s"     => \$opt_z,
 	 "M=s" => \$opt_M, "master=s"   => \$opt_M,
-	 "t=s" => \$opt_t, "timeout=i"  => \$opt_t,
+	 "t=o" => \$opt_t, "timeout=o"  => \$opt_t,
 	 "H=s" => \$opt_H, "hostname=s" => \$opt_H);
 
 if ($opt_V) {
