@@ -1,0 +1,3 @@
+check_axfr
+
+Monitor DNS zone serial numbers for currency by comparing with a master.
