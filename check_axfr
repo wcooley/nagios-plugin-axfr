@@ -22,15 +22,14 @@ use strict;
 use Getopt::Long;
 use English;
 use File::Basename qw(basename);
-use Net::DNS::Resolver;
-use Net::DNS::Packet;
-use Net::DNS::RR;
+use Net::DNS;
 
-my ($opt_c, $opt_w, $opt_V, $opt_h, $opt_H, $opt_z, $opt_M, $opt_t, $opt_r, $PROGNAME, $verbose);
+my ($opt_c, $opt_w, $opt_V, $opt_h, $opt_H, $opt_z, $opt_M, $opt_t, $opt_r, $verbose);
 use lib "/usr/lib/nagios/plugins";
 use utils qw($TIMEOUT %ERRORS &print_revision &support);
 
-$PROGNAME = basename($PROGRAM_NAME);
+my $PROGNAME = basename($PROGRAM_NAME);
+my $VERSION = '0.2.0';
 
 $ENV{'PATH'}='';
 $ENV{'BASH_ENV'}='';
@@ -170,8 +169,8 @@ sub print_usage {
 }
 
 sub print_help {
-    print_revision($PROGNAME,'$Revision: 0.01 $');
-    print "Copyright (c) 2003 Ondrej Sury\n";
+    print_revision($PROGNAME, "$VERSION");
+    print "Copyright (c) 2003 Ondrej Sury, 2012 Wil Cooley\n";
     print "\n";
     print_usage();
     support();
