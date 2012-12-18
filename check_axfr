@@ -135,6 +135,8 @@ sub get_serial {
     my $res = new Net::DNS::Resolver;
     $res->defnames(0);
     $res->recurse(0);
+    $res->tcp_timeout($timeout);
+    $res->udp_timeout($timeout);
     $res->retry($retries);
     $res->nameservers($ns);
     my $soa_req = $res->query($zone, "SOA");
