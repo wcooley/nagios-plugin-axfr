@@ -49,7 +49,7 @@ GetOptions
 	 "H=s" => \$opt_H, "hostname=s" => \$opt_H);
 
 if ($opt_V) {
-    print_revision($PROGNAME,'$Revision: 0.01 $ ');
+    print_revision($PROGNAME,$VERSION);
     exit $ERRORS{'OK'};
 }
 
@@ -96,10 +96,13 @@ if ($opt_w > $opt_c) {
 }
 
 my $master_serial = get_serial($zone, $master, $retries, $timeout);
+verbose("Got serial '%d' from host '%s' for zone '%s'.", $master_serial, $master, $zone);
+
 my $master_serial_critical  = $master_serial - $opt_c;
 my $master_serial_warn      = $master_serial - $opt_w;
 
 my $slave_serial = get_serial($zone, $host, $retries, $timeout);
+verbose("Got serial '%d' from host '%s' for zone '%s'.", $slave_serial, $host, $zone);
 
 if ($master_serial != $slave_serial) {
     my $should_be_text;
@@ -164,6 +167,13 @@ sub get_serial {
     my $serial = ($soa_req->answer)[0]->serial();
 
     return $serial;
+}
+
+sub verbose {
+    if ($verbose) {
+        printf @_;
+        print "\n";
+    }
 }
 
 sub print_usage {
