@@ -27,7 +27,7 @@ use Net::DNS::Resolver;
 use Net::DNS::Packet;
 use Net::DNS::RR;
 
-use vars qw($opt_V $opt_h $opt_H $opt_z $opt_M $opt_t $opt_r $PROGNAME $verbose);
+use vars qw($opt_c $opt_w $opt_V $opt_h $opt_H $opt_z $opt_M $opt_t $opt_r $PROGNAME $verbose);
 use lib "/usr/lib/nagios/plugins"; 
 use utils qw($TIMEOUT %ERRORS &print_revision &support);
 
@@ -45,6 +45,8 @@ GetOptions
 	("V"   => \$opt_V, "version"    => \$opt_V,
 	 "h"   => \$opt_h, "help"       => \$opt_h,
 	 "v" => \$verbose, "verbose"  	=> \$verbose,
+         "w=o" => \$opt_w, "warning"    => \$opt_w,
+         "c=o" => \$opt_c, "critical"   => \$opt_c,
 	 "r=s" => \$opt_r, "retries=f"  => \$opt_r,
 	 "z=s" => \$opt_z, "zone=s"     => \$opt_z,
 	 "M=s" => \$opt_M, "master=s"   => \$opt_M,
@@ -91,7 +93,14 @@ unless ($master) {
     exit $ERRORS{'UNKNOWN'};
 }
 
-my ($res, $soa_req, $serial);
+$opt_c ||= 0;
+$opt_w = $opt_c if not defined $opt_w;
+if ($opt_w > $opt_c) {
+    print "Warning level higher than critical level; ignoring.\n";
+    $opt_w = $opt_c;
+}
+
+my ($res, $soa_req, $master_serial);
 $res = new Net::DNS::Resolver;
 $res->defnames(0);
 $res->recurse(0);
@@ -119,7 +128,9 @@ unless (($soa_req->answer)[0]->type eq "SOA") {
     exit $ERRORS{'CRITICAL'};
 }
 	
-$serial = ($soa_req->answer)[0]->serial;
+$master_serial = ($soa_req->answer)[0]->serial;
+my $master_serial_critical  = $master_serial - $opt_c;
+my $master_serial_warn      = $master_serial - $opt_w;
 
 $res = new Net::DNS::Resolver;
 $res->defnames(0);
@@ -149,18 +160,38 @@ unless (($soa_req->answer)[0]->type eq "SOA") {
     exit $ERRORS{'CRITICAL'};
 }
 
-unless ($serial == ($soa_req->answer)[0]->serial) {
-    print "Serial not up-to-date: is ". ($soa_req->answer)[0]->serial . ", should be $serial\n";
-    exit $ERRORS{'CRITICAL'};
+my $slave_serial = ($soa_req->answer)[0]->serial();
+
+if ($master_serial != $slave_serial) {
+    my $should_be_text;
+    my $err = $ERRORS{'OK'};
+
+    if ( $slave_serial < $master_serial_critical ) {
+        $err = $ERRORS{'CRITICAL'};
+        $should_be_text = ($opt_c)
+                        ? "${master_serial} - ${master_serial_critical}"
+                        : $master_serial;
+    }
+    elsif ( $slave_serial < $master_serial_warn ) {
+        $err = $ERRORS{'WARNING'};
+        $should_be_text = ($opt_w)
+                        ? "${master_serial} - ${master_serial_warn}"
+                        : $master_serial;
+    }
+
+    if ($err != $ERRORS{'OK'}) {
+        print "Serial not up-to-date: is ${slave_serial}, should be ${should_be_text}\n";
+        exit $err;
+    }
 }
 
-print "Serial for $zone: $serial\n";
+print "Serial for $zone: $master_serial\n";
 exit $ERRORS{"OK"};
 
 #### subs
 
 sub print_usage () {
-	print "Usage: $PROGNAME -H <host> [-r <retries>] -M <master> -z <zone> [-v verbose]\n";
+	print "Usage: $PROGNAME -H <host> [ -c <lag_critical> [ -w <lag_warning> ] ] [-r <retries>] -M <master> -z <zone> [-v verbose]\n";
 }
 
 sub print_help () {
