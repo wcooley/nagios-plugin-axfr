@@ -23,6 +23,7 @@ use Getopt::Long;
 use English;
 use File::Basename qw(basename);
 use Net::DNS;
+use Nagios::Plugin;
 
 my ($opt_c, $opt_w, $opt_V, $opt_h, $opt_H, $opt_z, $opt_M, $opt_t, $opt_r, $verbose);
 use lib "/usr/lib/nagios/plugins";
@@ -35,18 +36,35 @@ $ENV{'PATH'}='';
 $ENV{'BASH_ENV'}='';
 $ENV{'ENV'}='';
 
-Getopt::Long::Configure('bundling');
-GetOptions
-        ("V"   => \$opt_V, "version"    => \$opt_V,
-         "h"   => \$opt_h, "help"       => \$opt_h,
-         "v"   => \$verbose, "verbose"  => \$verbose,
-         "w=o" => \$opt_w, "warning=o"  => \$opt_w,
-         "c=o" => \$opt_c, "critical=o" => \$opt_c,
-         "r=o" => \$opt_r, "retries=o"  => \$opt_r,
-         "z=s" => \$opt_z, "zone=s"     => \$opt_z,
-         "M=s" => \$opt_M, "master=s"   => \$opt_M,
-         "t=o" => \$opt_t, "timeout=o"  => \$opt_t,
-         "H=s" => \$opt_H, "hostname=s" => \$opt_H);
+my $np = Nagios::Plugin->new(
+    version => $VERSION,
+    usage => "Usage: %s -H <host> [ -v|--verbose ]"
+        . " [ -c| --critical=<threshold> [ -w| --warning=<threshold> ] ]"
+        . " [ -M|master=<master> ] [ -z|--zone=<zone>]"
+        . " [ -t|--timeout=<seconds> ] [ -r|retries=<retries>]"
+        ,
+);
+
+#$np->add_arg( speI#
+$np->add_arg( spec => 'critical|c=o', help => '-c, --critical=INTEGER');
+$np->add_arg( spec => 'warning|w=o', help => '-w, --warning=INTEGER');
+$np->add_arg( spec => 'master|M=s', help => '-M, --master=STRING');
+$np->add_arg( spec => 'zone|z=s', help => '-z, --zone=STRING');
+$np->add_arg( spec => 'retries|r=o', help => '-r, --retries=INTEGER');
+$np->getopts();
+
+#Getopt::Long::Configure('bundling');
+#GetOptions
+#        ("V"   => \$opt_V, "version"    => \$opt_V,
+#         "h"   => \$opt_h, "help"       => \$opt_h,
+#         "v"   => \$verbose, "verbose"  => \$verbose,
+#         "w=o" => \$opt_w, "warning=o"  => \$opt_w,
+#         "c=o" => \$opt_c, "critical=o" => \$opt_c,
+#         "r=o" => \$opt_r, "retries=o"  => \$opt_r,
+#         "z=s" => \$opt_z, "zone=s"     => \$opt_z,
+#         "M=s" => \$opt_M, "master=s"   => \$opt_M,
+#         "t=o" => \$opt_t, "timeout=o"  => \$opt_t,
+#         "H=s" => \$opt_H, "hostname=s" => \$opt_H);
 
 if ($opt_V) {
     print_revision($PROGNAME,$VERSION);
