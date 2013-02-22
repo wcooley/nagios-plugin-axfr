@@ -2,6 +2,7 @@
 #
 # Copyright (C) 1998 David Eckelkamp
 #           (C) 2005 Ondrej Sury
+#           (C) 2012 Wil Cooley
 #
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -16,20 +17,19 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program; if not, write to the Free Software
 #    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# FIXME:
+#   * "timeout" is used both as the script time-out and as the DNS query
+#   time-out, which makes more than one unlikely. Probably should distinguish
+#   between the two.
+#
 
 require 5.004;
 use strict;
-use Getopt::Long;
 use English;
-use File::Basename qw(basename);
 use Net::DNS;
 use Nagios::Plugin;
 
-my ($opt_c, $opt_w, $opt_V, $opt_h, $opt_H, $opt_z, $opt_M, $opt_t, $opt_r, $verbose);
-use lib "/usr/lib/nagios/plugins";
-use utils qw($TIMEOUT %ERRORS &print_revision &support);
-
-my $PROGNAME = basename($PROGRAM_NAME);
 my $VERSION = '0.2.0';
 
 $ENV{'PATH'}='';
@@ -37,150 +37,111 @@ $ENV{'BASH_ENV'}='';
 $ENV{'ENV'}='';
 
 my $np = Nagios::Plugin->new(
+    shortname => 'SOA SERIAL',
     version => $VERSION,
-    usage => "Usage: %s -H <host> [ -v|--verbose ]"
-        . " [ -c| --critical=<threshold> [ -w| --warning=<threshold> ] ]"
-        . " [ -M|master=<master> ] [ -z|--zone=<zone>]"
-        . " [ -t|--timeout=<seconds> ] [ -r|retries=<retries>]"
+    url     => 'http://github.com/wcooley/nagios-plugin-axfr',
+    blurb   => 'Check zone on slave DNS server for freshness',
+    usage   => 'Usage: %s -H <host> [ -v|--verbose ]'
+        . ' [ -c| --critical=<threshold> [ -w| --warning=<threshold> ] ]'
+        . ' [ -M|master=<master> ] [ -z|--zone=<zone>]'
+        . ' [ -t|--timeout=<seconds> ] [ -r|retries=<retries>]'
         ,
 );
 
-#$np->add_arg( speI#
-$np->add_arg( spec => 'critical|c=o', help => '-c, --critical=INTEGER');
-$np->add_arg( spec => 'warning|w=o', help => '-w, --warning=INTEGER');
-$np->add_arg( spec => 'master|M=s', help => '-M, --master=STRING');
-$np->add_arg( spec => 'zone|z=s', help => '-z, --zone=STRING');
-$np->add_arg( spec => 'retries|r=o', help => '-r, --retries=INTEGER');
+$np->add_arg(
+    spec  => 'host|H=s',
+    label => 'HOSTNAME',
+    help  => 'HOSTNAME of DNS slave under scrutiny.');
+$np->add_arg(
+    spec  => 'master|M=s',
+    help  => 'HOSTNAME of DNS master or upstream.',
+    label => 'HOSTNAME',
+    required => 1);
+$np->add_arg(
+    spec  => 'zone|z=s',
+    label => 'ZONE',
+    help  => 'Check serial for ZONE.',
+    required => 1);
+$np->add_arg(
+    spec  => 'critical|c=i',
+    label => 'COUNT',
+    default => 0,
+    help  => 'Exit with CRITICAL status if slave\'s serial is COUNT behind master\'s (default: %s)');
+$np->add_arg(
+    spec  => 'warning|w=i',
+    label => 'COUNT',
+    default => 0,
+    help  => 'Exit with WARNING status if slave\'s serial is COUNT behind master\'s (default: %s)');
+$np->add_arg(
+    spec  => 'retries|r=i',
+    label => 'COUNT',
+    default => 2,
+    help  => 'Try to query DNS server up to COUNT times (default: %s).');
+
 $np->getopts();
 
-#Getopt::Long::Configure('bundling');
-#GetOptions
-#        ("V"   => \$opt_V, "version"    => \$opt_V,
-#         "h"   => \$opt_h, "help"       => \$opt_h,
-#         "v"   => \$verbose, "verbose"  => \$verbose,
-#         "w=o" => \$opt_w, "warning=o"  => \$opt_w,
-#         "c=o" => \$opt_c, "critical=o" => \$opt_c,
-#         "r=o" => \$opt_r, "retries=o"  => \$opt_r,
-#         "z=s" => \$opt_z, "zone=s"     => \$opt_z,
-#         "M=s" => \$opt_M, "master=s"   => \$opt_M,
-#         "t=o" => \$opt_t, "timeout=o"  => \$opt_t,
-#         "H=s" => \$opt_H, "hostname=s" => \$opt_H);
+my $host = $np->opts->host;
+my $zone = $np->opts->zone;
+my $master = $np->opts->master;
+my $verbose = $np->opts->verbose;
 
-if ($opt_V) {
-    print_revision($PROGNAME,$VERSION);
-    exit $ERRORS{'OK'};
-}
+$np->set_thresholds(
+    warning  => $np->opts->warning,
+    critical => $np->opts->critical,
+);
 
-if ($opt_h) {
-    print_help();
-    exit $ERRORS{'OK'};
-}
-
-$opt_H = shift unless ($opt_H);
-my $host = $1 if ($opt_H && $opt_H =~ m/^([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+|[a-zA-Z][-a-zA-Z0-9]+(\.[a-zA-Z][-a-zA-Z0-9]+)*)$/);
-unless ($host) {
-    print "No target host specified\n";
-    print_usage();
-    exit $ERRORS{'UNKNOWN'};
-}
-
-my ($timeout, $retries);
-
-$timeout = $TIMEOUT;
-($opt_t) && ($opt_t =~ /^([0-9]+)$/) && ($timeout = $1);
-
-$retries = 2;
-($opt_r) && ($opt_r =~ /^([0-9]+)$/) && ($retries = $1);
-
-my $zone = $opt_z;
-unless ($zone) {
-    print "No zone specified\n";
-    print_usage();
-    exit $ERRORS{'UNKNOWN'};
-}
-
-my $master = $opt_M;
-unless ($master) {
-    print "No master DNS server specified\n";
-    print_usage();
-    exit $ERRORS{'UNKNOWN'};
-}
-
-$opt_c ||= 0;
-$opt_w = $opt_c if not defined $opt_w;
-if ($opt_w > $opt_c) {
-    print "Warning level higher than critical level; ignoring.\n";
-    $opt_w = $opt_c;
-}
-
-my $master_serial = get_serial($zone, $master, $retries, $timeout);
+my $master_serial = get_serial($master, $np);
 verbose("Got serial '%d' from host '%s' for zone '%s'.", $master_serial, $master, $zone);
 
-my $master_serial_critical  = $master_serial - $opt_c;
-my $master_serial_warn      = $master_serial - $opt_w;
-
-my $slave_serial = get_serial($zone, $host, $retries, $timeout);
+my $slave_serial = get_serial($host, $np);
 verbose("Got serial '%d' from host '%s' for zone '%s'.", $slave_serial, $host, $zone);
 
-if ($master_serial != $slave_serial) {
-    my $should_be_text;
-    my $err = $ERRORS{'OK'};
+my $serial_lag = $master_serial - $slave_serial;
 
-    if ( $slave_serial < $master_serial_critical ) {
-        $err = $ERRORS{'CRITICAL'};
-        $should_be_text = ($opt_c)
-                        ? "${master_serial} - ${master_serial_critical}"
-                        : $master_serial;
-    }
-    elsif ( $slave_serial < $master_serial_warn ) {
-        $err = $ERRORS{'WARNING'};
-        $should_be_text = ($opt_w)
-                        ? "${master_serial} - ${master_serial_warn}"
-                        : $master_serial;
-    }
+$np->add_perfdata(
+    label     => 'serial_lag',
+    value     => $serial_lag,
+    threshold => $np->threshold,
+);
 
-    if ($err != $ERRORS{'OK'}) {
-        print "Serial not up-to-date: is ${slave_serial}, should be ${should_be_text}\n";
-        exit $err;
-    }
-}
-
-print "Serial for $zone: $master_serial\n";
-exit $ERRORS{"OK"};
+$np->nagios_exit(
+    return_code => $np->check_threshold($master_serial - $slave_serial),
+    message     => " serial lag ${serial_lag}",
+);
 
 #### subs
 
 sub get_serial {
-    my ($zone, $ns, $retries, $timeout) = @_;
+    my ($ns, $np) = @_;
+
+    my $zone = $np->opts->zone;
 
     my $res = new Net::DNS::Resolver;
     $res->defnames(0);
     $res->recurse(0);
-    $res->tcp_timeout($timeout);
-    $res->udp_timeout($timeout);
-    $res->retry($retries);
+    $res->tcp_timeout($np->opts->timeout);
+    $res->udp_timeout($np->opts->timeout);
+    $res->retry($np->opts->retries);
     $res->nameservers($ns);
-    my $soa_req = $res->query($zone, "SOA");
+
+    my $soa_req = $res->query($zone, 'SOA');
 
     if (!defined($soa_req) || ($soa_req->header->ancount <= 0)) {
-        print "SOA query for zone '$zone' to nameserver '$ns' failed (" . $res->errorstring . ")\n";
-        exit $ERRORS{'UNKNOWN'};
+        $np->nagios_die("SOA query for zone '$zone' to "
+                        . "nameserver '$ns' failed: " . $res->errorstring);
     }
 
-    unless ($soa_req->header->aa) {
-        print "$ns in not authoritative for $zone\n";
-        exit $ERRORS{'UNKNOWN'};
-    }
+    $np->nagios_die("Nameserver '$ns' in not authoritative for zone '$zone'")
+        unless ($soa_req->header->aa);
 
-    unless ($soa_req->header->ancount == 1) {
-        print "Too many answers for SOA query from $ns for $zone\n";
-        exit $ERRORS{'UNKNOWN'};
-    }
+    $np->nagios_die("Too many answers for SOA query "
+                        . "from nameserver '$ns' for zone '$zone'")
+        unless ($soa_req->header->ancount == 1);
 
-    unless (($soa_req->answer)[0]->type eq "SOA") {
-        print "Query for SOA for $zone from $ns failed: return type = ". ($soa_req->answer)[0]->type . "\n";
-        exit $ERRORS{'UNKNOWN'};
-    }
+    $np->nagios_die("Query for SOA for zone '$zone' "
+                        . "from nameserver '$ns' failed: return type = "
+                        . ($soa_req->answer)[0]->type)
+        unless (($soa_req->answer)[0]->type eq 'SOA');
 
     my $serial = ($soa_req->answer)[0]->serial();
 
@@ -192,16 +153,4 @@ sub verbose {
         printf @_;
         print "\n";
     }
-}
-
-sub print_usage {
-    print "Usage: $PROGNAME -H <host> [ -c <lag_critical> [ -w <lag_warning> ] ] [-r <retries>] -M <master> -z <zone> [-v verbose]\n";
-}
-
-sub print_help {
-    print_revision($PROGNAME, "$VERSION");
-    print "Copyright (c) 2003 Ondrej Sury, 2012 Wil Cooley\n";
-    print "\n";
-    print_usage();
-    support();
 }
