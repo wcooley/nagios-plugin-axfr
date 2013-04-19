@@ -104,6 +104,11 @@ $np->add_perfdata(
     threshold => $np->threshold,
 );
 
+$np->add_perfdata(
+    label => 'serial',
+    value => $master_serial,
+);
+
 $np->nagios_exit(
     return_code => $np->check_threshold($master_serial - $slave_serial),
     message     => " serial lag ${serial_lag}",
