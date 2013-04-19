@@ -29,6 +29,7 @@ use strict;
 use English;
 use Net::DNS;
 use Nagios::Plugin;
+use Time::HiRes qw( gettimeofday tv_interval );
 
 my $VERSION = '0.2.0';
 
@@ -90,10 +91,10 @@ $np->set_thresholds(
     critical => $np->opts->critical,
 );
 
-my $master_serial = get_serial($master, $np);
+my ($master_serial, $master_query_time) = get_serial($master, $np);
 verbose("Got serial '%d' from host '%s' for zone '%s'.", $master_serial, $master, $zone);
 
-my $slave_serial = get_serial($host, $np);
+my ($slave_serial, $slave_query_time) = get_serial($host, $np);
 verbose("Got serial '%d' from host '%s' for zone '%s'.", $slave_serial, $host, $zone);
 
 my $serial_lag = $master_serial - $slave_serial;
@@ -107,6 +108,18 @@ $np->add_perfdata(
 $np->add_perfdata(
     label => 'serial',
     value => $master_serial,
+);
+
+$np->add_perfdata(
+    label => 'master_time',
+    value => $master_query_time,
+    uom   => 's',
+);
+
+$np->add_perfdata(
+    label => 'slave_time',
+    value => $slave_query_time,
+    uom   => 's',
 );
 
 $np->nagios_exit(
@@ -129,7 +142,9 @@ sub get_serial {
     $res->retry($np->opts->retries);
     $res->nameservers($ns);
 
+    my $start_time = [gettimeofday()];
     my $soa_req = $res->query($zone, 'SOA');
+    my $query_time = tv_interval($start_time);
 
     if (!defined($soa_req) || ($soa_req->header->ancount <= 0)) {
         $np->nagios_die("SOA query for zone '$zone' to "
@@ -150,7 +165,7 @@ sub get_serial {
 
     my $serial = ($soa_req->answer)[0]->serial();
 
-    return $serial;
+    return ($serial, $query_time);
 }
 
 sub verbose {
